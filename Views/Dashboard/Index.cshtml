@@ -1,0 +1,156 @@
+﻿@{
+    ViewData["Title"] = "Real-Time Market Data";
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.0/signalr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.8.1/slick.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.8.1/slick.min.css" />
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.8.1/slick-theme.min.css" />
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const marketConnection = new signalR.HubConnectionBuilder()
+                .withUrl("/marketDataHub")
+                .build();
+
+            const currencyConnection = new signalR.HubConnectionBuilder()
+                .withUrl("/currencyHub")
+                .build();
+
+            const ctx = document.getElementById('marketChart').getContext('2d');
+            let marketChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Bitcoin Price (USD)',
+                        data: [],
+                        borderColor: '#ff6600',
+                        backgroundColor: 'rgba(255, 102, 0, 0.2)',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#ff6600',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            grid: {
+                                color: 'rgba(200, 200, 200, 0.2)'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(200, 200, 200, 0.2)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                font: {
+                                    size: 12
+                                },
+                                color: '#333'
+                            }
+                        }
+                    }
+                }
+            });
+
+            let time = 0;
+            marketConnection.on("ReceiveMarketData", function (data) {
+                let parsedData = JSON.parse(data);
+                let price = parsedData.bpi.USD.rate_float;
+
+                if (marketChart.data.labels.length > 20) {
+                    marketChart.data.labels.shift();
+                    marketChart.data.datasets[0].data.shift();
+                }
+
+                marketChart.data.labels.push(time++);
+                marketChart.data.datasets[0].data.push(price);
+                marketChart.update();
+            });
+
+            currencyConnection.on("ReceiveCurrencyRates", function (data) {
+                let ratesContainer = document.getElementById("currencyRates");
+                ratesContainer.innerHTML = "";
+
+                for (const [currency, info] of Object.entries(data)) {
+                    let flagImg = info.flag ? `<img src='${info.flag}' alt='${currency} flag' style='width: 30px; margin-right: 10px;'>` : "";
+                    let rateElement = document.createElement("div");
+                    rateElement.innerHTML = `${flagImg} ${currency} (${info.currencyName}): ${info.rate}`;
+                    rateElement.style.display = "flex";
+                    rateElement.style.alignItems = "center";
+                    rateElement.style.margin = "5px";
+                    ratesContainer.appendChild(rateElement);
+                }
+
+                $('.currency-container').slick({
+                    slidesToShow: 3,
+                    slidesToScroll: 1,
+                    autoplay: true,
+                    autoplaySpeed: 2000,
+                    dots: false,
+                    arrows: false,
+                    infinite: true
+                });
+            });
+
+            marketConnection.start().then(function () {
+                setInterval(() => marketConnection.invoke("FetchMarketData"), 5000);
+            });
+
+            currencyConnection.start().then(function () {
+                setInterval(() => currencyConnection.invoke("SendCurrencyRates"), 10000);
+            });
+        });
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+
+        canvas {
+            max-width: 800px;
+            height: 400px;
+            margin: 0 auto;
+            display: block;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .currency-container {
+            max-width: 800px;
+            margin: 20px auto;
+            background: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.1);
+            font-size: 14px;
+            text-align: left;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-Time Bitcoin Price</h1>
+    <canvas id="marketChart"></canvas>
+    <h2>Real-Time Currency Rates</h2>
+    <div id="currencyRates" class="currency-container">Fetching...</div>
+</body>
+</html>
